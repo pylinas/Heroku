@@ -935,7 +935,7 @@
 
 ## 🌑 Heroku 1.1.1
 
-- Drop Uniborg and Raphielgang compatibility layer. More info in [2d525ab](https://github.com/hikariatama/Heroku/commit/2d525ab6b0e6b9d7ccd7408bbe175cea24d780a5)
+- Drop Uniborg and Raphielgang compatibility layer. More info in [2d525ab](https://github.com/hikariatama/hikka/commit/2d525ab6b0e6b9d7ccd7408bbe175cea24d780a5)
 - Minor bug fixes
 
 ## 🌑 Heroku 1.1.0

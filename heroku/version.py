@@ -13,7 +13,7 @@
 
 __version__ = (2, 0, 0)
 
-import os
+from pathlib import Path
 
 import git
 from ._internal import (
@@ -24,34 +24,37 @@ from ._internal import (
     restart,
 )
 
+repo_path = Path(__file__).parent.absolute()
+
 try:
-    branch = git.Repo(
-        path=os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    ).active_branch.name
+    branch = git.Repo(path=repo_path).active_branch.name
 except Exception:
     branch = "master"
 
 
-async def check_branch(me_id: int, allowed_ids: list):
-    repo_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+async def check_branch(me_id: int, allowed_ids: list[int]) -> None:
+    repo_path = Path(__file__).parent.absolute()
 
-    try:
-        repo = git.Repo(path=repo_path)
-    except Exception:
-        return
-
-    if me_id in allowed_ids:
-        return
-    else:
-        branch_name = get_branch_name(repo_path)
-        is_ancestor = check_commit_ancestor(repo, branch_name)
-        if is_ancestor:
+    match me_id:
+        case _ if me_id in allowed_ids:
             return
-        else:
+        case _:
             try:
-                reset_to_master(repo_path)
-                restore_worktree(repo_path)
+                repo = git.Repo(path=repo_path)
             except Exception:
-                pass
+                return
+
+            branch_name = get_branch_name(repo_path)
+            is_ancestor = check_commit_ancestor(repo, branch_name)
+            
+            match is_ancestor:
+                case True:
+                    return
+                case False:
+                    try:
+                        reset_to_master(repo_path)
+                        restore_worktree(repo_path)
+                    except Exception:
+                        pass
 
     restart()

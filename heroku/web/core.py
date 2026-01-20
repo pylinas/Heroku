@@ -18,7 +18,7 @@
 
 # ©️ Dan Gazizullin, 2021-2023
 # This file is a part of Heroku Userbot
-# 🌐 https://github.com/hikariatama/Heroku
+# 🌐 https://github.com/hikariatama/hikka
 # You can redistribute it and/or modify it under the terms of the GNU AGPLv3
 # 🔑 https://www.gnu.org/licenses/agpl-3.0.html
 
@@ -27,6 +27,7 @@ import contextlib
 import inspect
 import logging
 import os
+from pathlib import Path
 import subprocess
 
 import aiohttp_jinja2
@@ -42,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 
 class Web(root.Web):
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs) -> None:
         self.runner = None
         self.port = None
         self.running = asyncio.Event()
@@ -53,10 +54,9 @@ class Web(root.Web):
         aiohttp_jinja2.setup(
             self.app,
             filters={"getdoc": inspect.getdoc, "ascii": ascii},
-            loader=jinja2.FileSystemLoader("web-resources"),
+            loader=jinja2.FileSystemLoader(Path("web-resources")),
         )
         self.app["static_root_url"] = "/static"
-
         super().__init__(**kwargs)
         self.app.router.add_get("/favicon.ico", self.favicon)
         self.app.router.add_static("/static/", "web-resources/static")
@@ -66,55 +66,59 @@ class Web(root.Web):
         total_count: int,
         port: int,
         proxy_pass: bool = False,
-    ):
-        if total_count <= len(self.client_data):
-            if not self.running.is_set():
-                await self.start(port, proxy_pass=proxy_pass)
-
-            self.ready.set()
+    ) -> None:
+        match total_count <= len(self.client_data):
+            case True:
+                if not self.running.is_set():
+                    await self.start(port, proxy_pass=proxy_pass)
+                self.ready.set()
+            case False:
+                pass
 
     async def get_url(self, proxy_pass: bool) -> str:
         url = None
+        
+        match all(option in os.environ for option in {"LAVHOST", "USER", "SERVER"}):
+            case True:
+                return f"https://{os.environ['USER']}.{os.environ['SERVER']}.lavhost.ml"
+            case False:
+                pass
 
-        if all(option in os.environ for option in {"LAVHOST", "USER", "SERVER"}):
-            return f"https://{os.environ['USER']}.{os.environ['SERVER']}.lavhost.ml"
-
-        if proxy_pass:
-            with contextlib.suppress(Exception):
-                url = await self.proxypasser.get_url(timeout=10)
-
-        if not url:
-            ip = (
-                "127.0.0.1"
-                if "DOCKER" not in os.environ
-                else subprocess.run(
-                    ["hostname", "-i"],
-                    stdout=subprocess.PIPE,
-                    check=True,
-                )
-                .stdout.decode("utf-8")
-                .strip()
-            )
-
-            url = f"http://{ip}:{self.port}"
+        match proxy_pass:
+            case True:
+                with contextlib.suppress(Exception):
+                    url = await self.proxypasser.get_url(timeout=10)
+                if not url:
+                    ip = (
+                        "127.0.0.1"
+                        if "DOCKER" not in os.environ
+                        else subprocess.run(
+                            ["hostname", "-i"],
+                            stdout=subprocess.PIPE,
+                            check=True,
+                        )
+                        .stdout.decode("utf-8")
+                        .strip()
+                    )
+                    url = f"http://{ip}:{self.port}"
+            case False:
+                pass
 
         self.url = url
         return url
 
-    async def start(self, port: int, proxy_pass: bool = False):
+    async def start(self, port: int, proxy_pass: bool = False) -> None:
         self.runner = web.AppRunner(self.app)
         await self.runner.setup()
         self.port = os.environ.get("PORT", port)
         site = web.TCPSite(self.runner, None, self.port)
         self.proxypasser = proxypass.ProxyPasser(port=self.port)
         await site.start()
-
         await self.get_url(proxy_pass)
-
         self.running.set()
         print(f"Heroku Userbot Web Interface running on {self.port}")
 
-    async def stop(self):
+    async def stop(self) -> None:
         await self.runner.shutdown()
         await self.runner.cleanup()
         self.running.clear()
@@ -125,11 +129,11 @@ class Web(root.Web):
         client: CustomTelegramClient,
         loader: Modules,
         db: Database,
-    ):
+    ) -> None:
         self.client_data[client.tg_id] = (loader, client, db)
 
     @staticmethod
-    async def favicon(_):
+    async def favicon(_) -> web.Response:
         return web.Response(
             status=301,
             headers={"Location": "https://i.imgur.com/IRAiWBo.jpeg"},

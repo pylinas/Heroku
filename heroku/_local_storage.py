@@ -16,8 +16,8 @@ import asyncio
 import contextlib
 import hashlib
 import logging
-import os
-import typing
+from pathlib import Path
+from typing import Optional, Tuple
 
 import requests
 
@@ -34,26 +34,25 @@ MAX_TOTALSIZE = 1024 * 1024 * 100  # 100 MB
 class LocalStorage:
     """Saves modules to disk and fetches them if remote storage is not available."""
 
-    def __init__(self):
-        self._path = os.path.join(os.path.expanduser("~"), ".heroku", "modules_cache")
+    def __init__(self) -> None:
+        self._path = Path.home() / ".heroku" / "modules_cache"
         self._ensure_dirs()
 
     @property
     def _total_size(self) -> int:
-        return sum(os.path.getsize(f.path) for f in os.scandir(self._path))
+        return sum(f.stat().st_size for f in self._path.iterdir() if f.is_file())
 
-    def _ensure_dirs(self):
+    def _ensure_dirs(self) -> None:
         """Ensures that the local storage directory exists."""
-        if not os.path.isdir(self._path):
-            os.makedirs(self._path)
+        self._path.mkdir(parents=True, exist_ok=True)
 
-    def _get_path(self, repo: str, module_name: str) -> str:
-        return os.path.join(
-            self._path,
-            hashlib.sha256(f"{repo}_{module_name}".encode()).hexdigest() + ".py",
+    def _get_path(self, repo: str, module_name: str) -> Path:
+        return (
+            self._path
+            / f"{hashlib.sha256(f'{repo}_{module_name}'.encode()).hexdigest()}.py"
         )
 
-    def save(self, repo: str, module_name: str, module_code: str):
+    def save(self, repo: str, module_name: str, module_code: str) -> None:
         """
         Saves module to disk.
         :param repo: Repository name.
@@ -61,29 +60,30 @@ class LocalStorage:
         :param module_code: Module source code.
         """
         size = len(module_code)
-        if size > MAX_FILESIZE:
-            logger.warning(
-                "Module %s from %s is too large (%s bytes) to save to local cache.",
-                module_name,
-                repo,
-                size,
-            )
-            return
-
-        if self._total_size + size > MAX_TOTALSIZE:
-            logger.warning(
-                "Local storage is full, cannot save module %s from %s.",
-                module_name,
-                repo,
-            )
-            return
+        
+        match size > MAX_FILESIZE, self._total_size + size > MAX_TOTALSIZE:
+            case (True, _):
+                logger.warning(
+                    "Module %s from %s is too large (%s bytes) to save to local cache.",
+                    module_name,
+                    repo,
+                    size,
+                )
+                return
+            case (_, True):
+                logger.warning(
+                    "Local storage is full, cannot save module %s from %s.",
+                    module_name,
+                    repo,
+                )
+                return
 
         with open(self._get_path(repo, module_name), "w") as f:
             f.write(module_code)
 
         logger.debug("Saved module %s from %s to local cache.", module_name, repo)
 
-    def fetch(self, repo: str, module_name: str) -> typing.Optional[str]:
+    def fetch(self, repo: str, module_name: str) -> Optional[str]:
         """
         Fetches module from disk.
         :param repo: Repository name.
@@ -91,19 +91,18 @@ class LocalStorage:
         :return: Module source code or None.
         """
         path = self._get_path(repo, module_name)
-        if os.path.isfile(path):
-            with open(path, "r") as f:
-                return f.read()
+        if path.is_file():
+            return path.read_text()
 
         return None
 
 
 class RemoteStorage:
-    def __init__(self, client: CustomTelegramClient):
+    def __init__(self, client: CustomTelegramClient) -> None:
         self._local_storage = LocalStorage()
         self._client = client
 
-    async def preload(self, urls: typing.List[str]):
+    async def preload(self, urls: list[str]) -> None:
         """Preloads modules from remote storage."""
         logger.debug("Preloading modules from remote storage.")
         for url in urls:
@@ -116,7 +115,7 @@ class RemoteStorage:
 
 
     @staticmethod
-    def _parse_url(url: str) -> typing.Tuple[str, str, str]:
+    def _parse_url(url: str) -> Tuple[str, str, str]:
         """
         Parses a URL into a repository and module name.
         :param url: URL to parse.
@@ -139,7 +138,7 @@ class RemoteStorage:
 
         return url, repo, module_name
 
-    async def fetch(self, url: str, auth: typing.Optional[str] = None) -> str:
+    async def fetch(self, url: str, auth: Optional[str] = None) -> str:
         """
         Fetches the module from the remote storage.
         :param url: URL to the module.

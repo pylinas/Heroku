@@ -2,7 +2,7 @@
 
 # ©️ Dan Gazizullin, 2021-2023
 # This file is a part of Heroku Userbot
-# 🌐 https://github.com/hikariatama/Heroku
+# 🌐 https://github.com/hikariatama/hikka
 # You can redistribute it and/or modify it under the terms of the GNU AGPLv3
 # 🔑 https://www.gnu.org/licenses/agpl-3.0.html
 
@@ -20,6 +20,7 @@ import os
 import re
 import string
 import time
+from typing import Optional 
 
 import aiohttp_jinja2
 import requests
@@ -38,7 +39,6 @@ from herokutl.tl.functions.account import GetPasswordRequest
 from herokutl.tl.functions.auth import CheckPasswordRequest
 from herokutl.tl.functions.messages import RequestWebViewRequest
 from herokutl.utils import parse_phone
-
 from .. import database, main, utils
 from .._internal import restart
 from ..inline.utils import Utils as inutils
@@ -92,16 +92,17 @@ class Web:
 
     @property
     def _platform_emoji(self) -> str:
-        return {
-            "vds": "https://github.com/hikariatama/assets/raw/master/waning-crescent-moon_1f318.png",
-            "lavhost": "https://github.com/hikariatama/assets/raw/master/victory-hand_270c-fe0f.png",
-            "docker": "https://github.com/hikariatama/assets/raw/master/spouting-whale_1f433.png",
-        }[(
+        match (
             "lavhost"
             if "LAVHOST" in os.environ
             else "docker" if "DOCKER" in os.environ else "vds"
-            )
-        ]
+        ):
+            case "vds":
+                return "https://github.com/hikariatama/assets/raw/master/waning-crescent-moon_1f318.png"
+            case "lavhost":
+                return "https://github.com/hikariatama/assets/raw/master/victory-hand_270c-fe0f.png"
+            case "docker":
+                return "https://github.com/hikariatama/assets/raw/master/spouting-whale_1f433.png"
 
     @aiohttp_jinja2.template("root.jinja2")
     async def root(self, _):
@@ -273,25 +274,26 @@ class Web:
         if not self._check_session(request):
             return web.Response(status=401)
 
-        if self._qr_login is True:
-            if self._2fa_needed:
-                return web.Response(status=403, body="2FA")
+        match self._qr_login:
+            case True:
+                if self._2fa_needed:
+                    return web.Response(status=403, body="2FA")
 
-
-            asyncio.ensure_future(self.schedule_restart(self))
-            # self.schedule_restart()
-            return web.Response(status=200, body="SUCCESS")
-
-        if self._qr_login is None:
-            await self.init_qr_login(request)
-
-        if self._qr_login is None:
-            return web.Response(
-                status=500,
-                body="Internal Server Error: Unable to initialize QR login",
-            )
-
-        return web.Response(status=201, body=self._qr_login.url)
+                asyncio.ensure_future(self.schedule_restart(self))
+                # self.schedule_restart()
+                return web.Response(status=200, body="SUCCESS")
+            case None:
+                await self.init_qr_login(request)
+                
+                if self._qr_login is None:
+                    return web.Response(
+                        status=500,
+                        body="Internal Server Error: Unable to initialize QR login",
+                    )
+                
+                return web.Response(status=201, body=self._qr_login.url)
+            case _:
+                return web.Response(status=201, body=self._qr_login.url)
 
     def _get_client(self) -> CustomTelegramClient:
         return CustomTelegramClient(

@@ -16,38 +16,37 @@ import logging
 import os
 import random
 import signal
-import sys
 import subprocess
-import re
+import sys
+from pathlib import Path
+from typing import Callable
 
 
 async def fw_protect():
     await asyncio.sleep(random.randint(1000, 2000) / 1000)
 
 
-def get_startup_callback() -> callable:
+def get_startup_callback() -> Callable[[], None]:
     return lambda *_: os.execl(
         sys.executable,
         sys.executable,
         "-m",
-        os.path.relpath(os.path.abspath(os.path.dirname(os.path.abspath(__file__)))),
+        Path(__file__).parent.relative_to(Path.cwd()),
         *sys.argv[1:],
     )
 
 
-def die():
+def die() -> None:
     """Platform-dependent way to kill the current process group"""
-    match True:
-        case _ if "DOCKER" in os.environ:
-            sys.exit(0)
-        case _ if sys.platform == 'win32':
+    match os.environ.get("DOCKER"), sys.platform:
+        case ("DOCKER", _) | (_, "win32"):
             sys.exit(0)
         case _:
             os.killpg(os.getpgid(os.getpid()), signal.SIGTERM)
 
 
 
-def restart():
+def restart() -> None:
     if "--sandbox" in " ".join(sys.argv):
         exit(0)
 
@@ -58,12 +57,10 @@ def restart():
         sys.exit(0)
 
     logging.getLogger().setLevel(logging.CRITICAL)
-
     print("🔄 Restarting...")
 
-
-    match True:
-        case _ if "LAVHOST" in os.environ:
+    match os.environ.get("LAVHOST"):
+        case "LAVHOST":
             os.system("lavhost restart")
             return
         case _:
@@ -72,31 +69,23 @@ def restart():
             else:
                 os.environ["HEROKU_DO_NOT_RESTART2"] = "1"
 
-            if "DOCKER" in os.environ or sys.platform == "win32":
-                atexit.register(get_startup_callback())
-            else:
-                signal.signal(signal.SIGTERM, get_startup_callback())
+            match os.environ.get("DOCKER"), sys.platform:
+                case ("DOCKER", _) | (_, "win32"):
+                    atexit.register(get_startup_callback())
+                case _:
+                    signal.signal(signal.SIGTERM, get_startup_callback())
 
             die()
 
 
-def print_banner(banner: str):
+def print_banner(banner: str) -> None:
     print("\033[2J\033[3;1f")
-    with open(
-        os.path.abspath(
-            os.path.join(
-                os.path.dirname(__file__),
-                "..",
-                "assets",
-                banner,
-            )
-        ),
-        "r",
-    ) as f:
+    banner_path = Path(__file__).parent.parent / "assets" / banner
+    with open(banner_path, "r") as f:
         print(f.read())
 
 
-def check_commit_ancestor(commit, repo_path):
+def check_commit_ancestor(commit: str, repo_path: str | Path) -> bool:
     """Check if commit is ancestor of origin/master"""
     try:
         proc = subprocess.run(
@@ -108,7 +97,7 @@ def check_commit_ancestor(commit, repo_path):
         return False
 
 
-def get_branch_name(repo_path):
+def get_branch_name(repo_path: str | Path) -> str | None:
     """Get the current branch name using multiple methods (gitpython, HEAD, git cmd)"""
     branch_name = None
 
@@ -122,7 +111,7 @@ def get_branch_name(repo_path):
 
     if not branch_name:
         try:
-            head_path = os.path.join(repo_path, ".git", "HEAD")
+            head_path = Path(repo_path) / ".git" / "HEAD"
             with open(head_path, "r", encoding="utf-8") as f:
                 content = f.read().strip()
             if content.startswith("ref:"):
@@ -152,7 +141,7 @@ def get_branch_name(repo_path):
     return branch_name
 
 
-def reset_to_master(repo_path):
+def reset_to_master(repo_path: str | Path) -> None:
     """Reset repository to master branch using gitpython or subprocess fallback"""
     try:
         import git
@@ -168,12 +157,11 @@ def reset_to_master(repo_path):
             pass
 
 
-def restore_worktree(repo_path):
+def restore_worktree(repo_path: str | Path) -> bool:
     """Restore working tree for allowed users. Try `git restore .`, fallback to `git reset --hard`.
 
     Returns True if an operation succeeded, False otherwise.
     """
-
     try:
         proc = subprocess.run(["git", "restore", "."], cwd=repo_path)
         if proc.returncode == 0:
